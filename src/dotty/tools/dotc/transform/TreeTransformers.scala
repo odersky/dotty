@@ -25,118 +25,108 @@ object TreeTransformers {
     def transformStats(stats: List[Tree])(implicit ctx: Context): List[Tree] = stats
   }
 
-  private def mapTransforms[T](ts: List[TreeTransform], f: TransformerMap[T], x: T): List[TreeTransform] = ts match {
-    case t :: ts1 =>
+  private def mapTransforms[T](ts: Array[TreeTransform], f: TransformerMap[T], x: T): Array[TreeTransform] = {
+    var result = ts
+    var i = 0
+    while (i < ts.length) {
+      val t = ts(i)
       val mt = f(t, x)
-      val mts1 = mapTransforms(ts1, f, x)
-      if ((mt eq t) && (mts1 eq ts1)) ts else mt :: mts1
-    case nil =>
-      nil
+      if (mt ne t) {
+        if (result eq ts) result = ts.clone
+        result(i) = mt
+      }
+      i += 1
+    }
+    result
   }
 
-  def transform(transforms: List[TreeTransform], tree: Tree)(implicit ctx: Context): Tree = {
-    def mappedTransforms[T <: Tree](f: TransformerMap[T], tree: T): List[TreeTransform] =
+  def transform(transforms: Array[TreeTransform], tree: Tree)(implicit ctx: Context): Tree = {
+    def mappedTransforms[T <: Tree](f: TransformerMap[T], tree: T): Array[TreeTransform] =
       mapTransforms(transforms, f, tree)
 
-    def go(ts: List[TreeTransform], last: Tree): Tree = last match {
-      case last: Ident => goIdent(ts, last)
-      case last: Select => goSelect(ts, last)
-      case last: Apply => goApply(ts, last)
-      case last: Block => goBlock(ts, last)
-      case last: ValDef => goValDef(ts, last)
+    def go(ts: Array[TreeTransform], i: Int, last: Tree): Tree = last match {
+      case last: Ident => goIdent(ts, i, last)
+      case last: Select => goSelect(ts, i, last)
+      case last: Apply => goApply(ts, i, last)
+      case last: Block => goBlock(ts, i, last)
+      case last: ValDef => goValDef(ts, i, last)
     }
 
-    def goIdent(ts: List[TreeTransform], last: Ident): Tree = ts match {
-      case t :: ts1 =>
-        t.transformIdent(last) match {
-          case next: Ident => goIdent(ts1, next)
-          case next => go(ts, next)
-        }
-      case _ =>
-        last
-    }
+    def goIdent(ts: Array[TreeTransform], i: Int, last: Ident): Tree =
+      if (i == ts.length) last
+      else ts(i).transformIdent(last) match {
+        case next: Ident => goIdent(ts, i + 1, next)
+        case next => go(ts, i + 1, next)
+      }
 
-    def goSelect(ts: List[TreeTransform], last: Select): Tree = ts match {
-      case t :: ts1 =>
-        t.transformSelect(last) match {
-          case next: Select => goSelect(ts1, next)
-          case next => go(ts, next)
-        }
-      case _ =>
-        last
-    }
+    def goSelect(ts: Array[TreeTransform], i: Int, last: Select): Tree =
+      if (i == ts.length) last
+      else ts(i).transformSelect(last) match {
+        case next: Select => goSelect(ts, i + 1, next)
+        case next => go(ts, i + 1, next)
+      }
 
-    def goApply(ts: List[TreeTransform], last: Apply): Tree = ts match {
-      case t :: ts1 =>
-        t.transformApply(last) match {
-          case next: Apply => goApply(ts1, next)
-          case next => go(ts, next)
-        }
-      case _ =>
-        last
-    }
+    def goApply(ts: Array[TreeTransform], i: Int, last: Apply): Tree =
+      if (i == ts.length) last
+      else ts(i).transformApply(last) match {
+        case next: Apply => goApply(ts, i + 1, next)
+        case next => go(ts, i + 1, next)
+      }
 
-    def goBlock(ts: List[TreeTransform], last: Block): Tree = ts match {
-      case t :: ts1 =>
-        t.transformBlock(last) match {
-          case next: Block => goBlock(ts1, next)
-          case next => go(ts, next)
-        }
-      case _ =>
-        last
-    }
+    def goBlock(ts: Array[TreeTransform], i: Int, last: Block): Tree =
+      if (i == ts.length) last
+      else ts(i).transformBlock(last) match {
+        case next: Block => goBlock(ts, i + 1, next)
+        case next => go(ts, i + 1, next)
+      }
 
-    def goValDef(ts: List[TreeTransform], last: ValDef): Tree = ts match {
-      case t :: ts1 =>
-        t.transformValDef(last)(ctx.fresh withOwner last.symbol) match {
-          case next: ValDef => goValDef(ts1, next)
-          case next => go(ts, next)
-        }
-      case nil =>
-        last
-    }
+    def goValDef(ts: Array[TreeTransform], i: Int, last: ValDef): Tree =
+      if (i == ts.length) last
+      else ts(i).transformValDef(last) match {
+        case next: ValDef => goValDef(ts, i + 1, next)
+        case next => go(ts, i + 1, next)
+      }
 
     tree match {
       case tree: Ident =>
         val ts1 = mappedTransforms(prepareForIdentFn, tree)
-        goIdent(ts1, tree)
+        goIdent(ts1, 0, tree)
       case tree: Select =>
         val ts1 = mappedTransforms(prepareForSelectFn, tree)
         val tree1 = cpy.Select(tree, transform(ts1, tree.qualifier), tree.name)
-        goSelect(ts1, tree1)
+        goSelect(ts1, 0, tree1)
       case tree: Apply =>
         val ts1 = mappedTransforms(prepareForApplyFn, tree)
         val tree1 = cpy.Apply(tree,
             transform(ts1, tree.fun),
             transform(ts1, tree.args))
-        goApply(ts1, tree1)
+        goApply(ts1, 0, tree1)
       case tree: Block =>
         val ts1 = mappedTransforms(prepareForBlockFn, tree)
         val tree1 = cpy.Block(tree,
             transformStats(ts1, tree.stats),
             transform(ts1, tree.expr))
-        goBlock(ts1, tree1)
+        goBlock(ts1, 0, tree1)
        case tree: ValDef =>
         val ts1 = mappedTransforms(prepareForValDefFn, tree)
         val nestedCtx = ctx.fresh withOwner tree.symbol
         val tree1 = cpy.ValDef(tree, tree.mods, tree.name,
             transform(ts1, tree.tpt),
             transform(ts1, tree.rhs)(nestedCtx))
-        goValDef(ts1, tree1)
+        goValDef(ts1, 0, tree1)
     }
   }
 
-  def transform(transforms: List[TreeTransform], trees: List[Tree])(implicit ctx: Context): List[Tree] =
+  def transform(transforms: Array[TreeTransform], trees: List[Tree])(implicit ctx: Context): List[Tree] =
     trees mapConserve (transform(transforms, _))
 
-  def transformStats(transforms: List[TreeTransform], trees: List[Tree])(implicit ctx: Context): List[Tree] = {
-    def go(ts: List[TreeTransform], last: List[Tree]): List[Tree] = ts match {
-      case t :: ts1 => go(ts1, t.transformStats(last))
-      case nil => last
-    }
+  def transformStats(transforms: Array[TreeTransform], trees: List[Tree])(implicit ctx: Context): List[Tree] = {
+    def go(ts: Array[TreeTransform], i: Int, last: List[Tree]): List[Tree] =
+      if (i == ts.length) last
+      else go(ts, i + 1, ts(i).transformStats(last))
     val ts1 = mapTransforms(transforms, prepareForStatsFn, trees)
     val trees1 = transform(ts1, trees)
-    go(ts1, trees1)
+    go(ts1, 0, trees1)
   }
 
   private type TransformerMap[T] = (TreeTransform, T) => TreeTransform
