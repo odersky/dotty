@@ -19,8 +19,34 @@ object TreeTransforms {
    *  signals this fact by returning a NoTransform from a prepare method.
    *
    *  If all transforms in a group are NoTransforms, the tree is no longer traversed.
+   *
+   *  @param  group  The group this transform belongs to
+   *  @param  idx    The index of this transform in its group
+   *
+   *  Performance analysis: Taking the dotty compiler frontend as a use case, we are aiming for a warm performance of
+   *  about 4000 lines / sec. This means 6 seconds for a codebase of 24'000 lines. Of these the frontend consumes
+   *  over 2.5 seconds, erasure and code generation will most likely consume over 1 second each. So we would have
+   *  about 1 sec for all other transformations in our budget. Of this second, let's assume a maximum of 20% for
+   *  the general dispatch overhead as opposed to the concrete work done in transformations. So that leaves us with
+   *  0.2sec, or roughly 600M processor cycles.
+   *
+   *  Now, to the amount of work that needs to be done. The codebase produces of about 250'000 trees after typechecking.
+   *  Transformations are likely to make this bigger so let's assume 300K trees on average. We estimate to have about 100
+   *  micro-transformations. Let's say 5 transformation groups of 20 micro-transformations each. (by comparison,
+   *  scalac has in excess of 20 phases, and most phases do multiple transformations). There are then 30M visits
+   *  of a node by a transformation. Each visit has a budget of 20 processor cycles.
+   *
+   *  A more detailed breakdown: I assume that about one third of all transformations have real work to do for each node.
+   *  This might look high, but keep in mind that the most common nodes are Idents and Selects, and most transformations
+   *  touch these. By contrast the amount of work for generating new transformations should be negligible.
+   *
+   *  So, in 400 clock cycles we need to (1) perform a pattern match according to the type of node, (2) generate new
+   *  transformations if applicable, (3) reconstitute the tree node from the result of transforming the children, and
+   *  (4) chain 7 out of 20 transformations over the resulting tree node. I believe the current algorithm is suitable
+   *  for achieving this goal, but there can be no wasted cycles anywhere.
    */
-  class TreeTransform {
+  class TreeTransform(group: TreeTransforms, idx: Int) {
+
     def prepareForIdent(tree: Ident): TreeTransform = this
     def prepareForSelect(tree: Select): TreeTransform = this
     def prepareForThis(tree: This): TreeTransform = this
@@ -84,9 +110,15 @@ object TreeTransforms {
     def transformTemplate(tree: Template)(implicit ctx: Context): Tree = tree
     def transformPackageDef(tree: PackageDef)(implicit ctx: Context): Tree = tree
     def transformStats(stats: List[Tree])(implicit ctx: Context): List[Tree] = stats
+
+    /** Transform tree using all transforms of current group (including this one) */
+    def transform(tree: Tree)(implicit ctx: Context): Tree = group.transform(tree)
+
+    /** Transform tree using all transforms following the current one in this group */
+    def transformFollowing(tree: Tree)(implicit ctx: Context): Tree = group.transform(tree, idx + 1)
   }
 
-  val NoTransform = new TreeTransform
+  val NoTransform = new TreeTransform(null, -1)
 
   /** A map that takes a TreeTransformer and some other element and returns a TreeTransformer */
   private type TransformerMap[T] = (TreeTransform, T) => TreeTransform
@@ -126,22 +158,28 @@ object TreeTransforms {
 import TreeTransforms._
 
 /** A group of tree transforms that are applied in sequence during the same phase */
-class TreeTransforms(transforms: Array[TreeTransform]) {
-  def this(ts: TreeTransform*) = this(ts.toArray)
+abstract class TreeTransforms {
+
+  protected def transformTemplates: Array[(TreeTransforms, Int) => TreeTransform]
+
+  lazy val transforms: Array[TreeTransform] =
+    transformTemplates.zipWithIndex map { case (templ, idx) => templ(this, idx) }
 
   import ast.tpd._
 
   /** Transform `tree` using the given tree transforms */
-  def transform(tree: Tree)(implicit ctx: Context): Tree = transform(transforms, tree)
+  def transform(tree: Tree, start: Int = 0)(implicit ctx: Context): Tree =
+    transform(transforms, start, tree)
 
   /** Transform `tree` using the given tree transforms */
-  def transformStats(stats: List[Tree])(implicit ctx: Context): List[Tree] = transformStats(transforms, stats)
+  def transformStats(stats: List[Tree], start: Int = 0)(implicit ctx: Context): List[Tree] =
+    transformStats(transforms, start, stats)
 
   private def hasMethod(cls: Class[_], name: String): Boolean =
     if (cls.getDeclaredMethods.exists(_.getName == name)) cls != classOf[TreeTransform]
     else hasMethod(cls.getSuperclass, name)
 
-  /** Create an index array `next` of size one larger than teh size of `transforms` such that
+  /** Create an index array `next` of size one larger than the size of `transforms` such that
    *  for each index i, `next(i)` is the smallest index j such that
    *
    *      i <= j
@@ -179,7 +217,7 @@ class TreeTransforms(transforms: Array[TreeTransform]) {
   // ...
 
   /** Transform given tree using given transforms */
-  private def transform(transforms: Array[TreeTransform], tree: Tree)(implicit ctx: Context): Tree = {
+  private def transform(transforms: Array[TreeTransform], start: Int, tree: Tree)(implicit ctx: Context): Tree = {
     def mappedTransforms[T <: Tree](f: TransformerMap[T], nx: Array[Int], tree: T): Array[TreeTransform] =
       mapTransforms(f, nx, tree, transforms)
 
@@ -234,7 +272,7 @@ class TreeTransforms(transforms: Array[TreeTransform]) {
         case next => go(ts, nxTransValDef(i + 1), next)
       }
 
-    /** Main pattern match. For each node, perform the following steps
+    /** Main pattern matches. For each node, perform the following steps
      *  (1) Compute the array of new transforms for this node and its children.
      *      If the result is null, return tree unchanged
      *  (2) Transforms recursively to all children and reconstitute the same kind of node
@@ -244,35 +282,17 @@ class TreeTransforms(transforms: Array[TreeTransform]) {
      *  The algorithm takes care using indices not to execute transforms which
      *  are empty for the node.
      */
-    tree match {
+    def transformNamed(tree: Tree) = tree match {
       case tree: Ident =>
         val ts1 = mappedTransforms(prepareForIdentFn, nxPrepIdent, tree)
         if (ts1 == null) tree
-        else goIdent(ts1, nxTransIdent(0), tree)
+        else goIdent(ts1, nxTransIdent(start), tree)
       case tree: Select =>
         val ts1 = mappedTransforms(prepareForSelectFn, nxPrepSelect, tree)
         if (ts1 == null) tree
         else {
-          val tree1 = cpy.Select(tree, transform(ts1, tree.qualifier), tree.name)
-          goSelect(ts1, nxTransSelect(0), tree1)
-        }
-      case tree: Apply =>
-        val ts1 = mappedTransforms(prepareForApplyFn, nxPrepApply, tree)
-        if (ts1 == null) tree
-        else {
-          val tree1 = cpy.Apply(tree,
-            transform(ts1, tree.fun),
-            transform(ts1, tree.args))
-          goApply(ts1, nxTransApply(0), tree1)
-        }
-      case tree: Block =>
-        val ts1 = mappedTransforms(prepareForBlockFn, nxPrepBlock, tree)
-        if (ts1 == null) tree
-        else {
-          val tree1 = cpy.Block(tree,
-              transformStats(ts1, tree.stats),
-              transform(ts1, tree.expr))
-          goBlock(ts1, nxTransBlock(0), tree1)
+          val tree1 = cpy.Select(tree, transform(ts1, start, tree.qualifier), tree.name)
+          goSelect(ts1, nxTransSelect(start), tree1)
         }
       case EmptyValDef => tree
       case tree: ValDef =>
@@ -281,29 +301,56 @@ class TreeTransforms(transforms: Array[TreeTransform]) {
         else {
           val nestedCtx = ctx.fresh withOwner tree.symbol
           val tree1 = cpy.ValDef(tree, tree.mods, tree.name,
-            transform(ts1, tree.tpt),
-            transform(ts1, tree.rhs)(nestedCtx))
-          goValDef(ts1, nxTransValDef(0), tree1)
+            transform(ts1, start, tree.tpt),
+            transform(ts1, start, tree.rhs)(nestedCtx))
+          goValDef(ts1, nxTransValDef(start), tree1)
         }
+      case _ =>
+        ???
     }
+
+    def transformUnnamed(tree: Tree) = tree match {
+      case tree: Apply =>
+        val ts1 = mappedTransforms(prepareForApplyFn, nxPrepApply, tree)
+        if (ts1 == null) tree
+        else {
+          val tree1 = cpy.Apply(tree,
+            transform(ts1, start, tree.fun),
+            transform(ts1, start, tree.args))
+          goApply(ts1, nxTransApply(start), tree1)
+        }
+      case tree: Block =>
+        val ts1 = mappedTransforms(prepareForBlockFn, nxPrepBlock, tree)
+        if (ts1 == null) tree
+        else {
+          val tree1 = cpy.Block(tree,
+              transformStats(ts1, start, tree.stats),
+              transform(ts1, start, tree.expr))
+          goBlock(ts1, nxTransBlock(start), tree1)
+        }
+      case _ =>
+        ???
+    }
+
+    if (tree.isInstanceOf[NameTree]) transformNamed(tree) else transformUnnamed(tree)
   }
 
   /** Transform list of trees, flatten if necessary */
-  private def transform(transforms: Array[TreeTransform], trees: List[Tree])(implicit ctx: Context): List[Tree] =
-    flatten(trees mapConserve (transform(transforms, _)))
+  private def transform(transforms: Array[TreeTransform], start: Int, trees: List[Tree])(implicit ctx: Context): List[Tree] =
+    flatten(trees mapConserve (transform(transforms, start, _)))
 
   /** Transform list of statements using the transforms' `transformStats` method, in the same
    *  way individual tree nodes are transformed.
    */
-  private def transformStats(transforms: Array[TreeTransform], trees: List[Tree])(implicit ctx: Context): List[Tree] = {
+  private def transformStats(transforms: Array[TreeTransform], start: Int, trees: List[Tree])(implicit ctx: Context): List[Tree] = {
     def go(ts: Array[TreeTransform], i: Int, last: List[Tree]): List[Tree] =
       if (i == ts.length) last
       else go(ts, nxTransStats(i + 1), ts(i).transformStats(last))
     val ts1 = mapTransforms(prepareForStatsFn, nxPrepStats, trees, transforms)
     if (ts1 == null) trees
     else {
-      val trees1 = transform(ts1, trees)
-      go(ts1, nxTransStats(0), trees1)
+      val trees1 = transform(ts1, start, trees)
+      go(ts1, nxTransStats(start), trees1)
     }
   }
 }
