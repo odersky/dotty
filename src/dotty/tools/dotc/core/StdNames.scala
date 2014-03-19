@@ -247,6 +247,7 @@ object StdNames {
     val SPECIALIZED_INSTANCE: N     = "specInstance$"
     val THIS: N                     = "_$this"
     val HK_PARAM_PREFIX: N          = "_$hk$"
+    val HK_TRAIT_PREFIX: N          = "$HigherKinded$"
 
     final val Nil: N                = "Nil"
     final val Predef: N             = "Predef"
@@ -280,7 +281,6 @@ object StdNames {
     val ConstantType: N         = "ConstantType"
     val ExistentialTypeTree: N  = "ExistentialTypeTree"
     val Flag : N                = "Flag"
-    val HigherKinded: N         = "HigherKinded"
     val Ident: N                = "Ident"
     val Import: N               = "Import"
     val Literal: N              = "Literal"
@@ -644,10 +644,14 @@ object StdNames {
     def syntheticTypeParamNames(num: Int): List[TypeName] =
       (0 until num).map(syntheticTypeParamName)(breakOut)
 
-    def higherKindedTraitName(n: Int) = HigherKinded ++ n.toString
+    def higherKindedTraitName(vcs: List[Int]): TypeName = HK_TRAIT_PREFIX ++ vcs.map(varianceSuffix).mkString
     def higherKindedParamName(n: Int) = HK_PARAM_PREFIX ++ n.toString
 
     final val Conforms = encode("<:<")
+
+    def varianceSuffix(v: Int): Char = varianceSuffixes.charAt(v + 1)
+
+    val varianceSuffixes = "NIP"
   }
 
   abstract class JavaNames[N <: Name] extends DefinedNames[N] {
