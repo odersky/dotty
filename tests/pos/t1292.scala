@@ -2,13 +2,15 @@ trait Foo[T <: Foo[T, Enum], Enum <: Enumeration] {
   type StV = Enum#Value
   type Meta = MegaFoo[T, Enum]
 
-  type Slog <: Enumeration
+  type Slog = Enumeration
 
   def getSingleton: Meta
 }
 
 trait MegaFoo[T <: Foo[T, Enum], Enum <: Enumeration] extends Foo[T, Enum] {
   def doSomething(what: T, misc: StV, dog: Meta#Event) = None
+    // error: Meta is not a valid prefix for '#'.
+    // The error is correct. Meta is not stable, and it has an abstract type member Slog
   abstract class Event
   object Event
 
@@ -23,8 +25,6 @@ object E extends Enumeration {
 
 class RFoo extends Foo[RFoo, E.type] {
   def getSingleton = MegaRFoo
-
-  type Slog = E.type
 }
 
 object MegaRFoo extends RFoo with MegaFoo[RFoo, E.type] {
