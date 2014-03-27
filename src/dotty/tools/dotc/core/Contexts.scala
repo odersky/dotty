@@ -286,8 +286,7 @@ object Contexts {
     final def withPhase(phaseId: PhaseId): Context =
       if (this.phaseId == phaseId) this else fresh.setPhase(phaseId)
     final def withPhase(phase: Phase): Context =
-      if (this.period == phase.period) this else fresh.setPhase(phase)
-
+      withPhase(phase.id)
 
     final def addMode(mode: Mode): Context = withMode(this.mode | mode)
     final def maskMode(mode: Mode): Context = withMode(this.mode & mode)
