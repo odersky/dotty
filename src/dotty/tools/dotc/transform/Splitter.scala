@@ -19,9 +19,7 @@ class Splitter extends TreeTransform {
 
   /** Replace self referencing idents with ThisTypes. */
   override def transformIdent(tree: Ident)(implicit ctx: Context, info: TransformerInfo) = tree.tpe match {
-    case ThisType(cls) =>
-      println(s"owner = ${ctx.owner}, context = ${ctx}")
-      This(cls) withPos tree.pos
+    case ThisType(cls) => This(cls) withPos tree.pos
     case _ => tree
   }
 
