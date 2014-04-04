@@ -273,17 +273,22 @@ object Denotations {
 
       def unionDenot(denot1: SingleDenotation, denot2: SingleDenotation): Denotation =
         if (denot1.signature matches denot2.signature) {
-          val sym1 = denot1.symbol
-          val sym2 = denot2.symbol
+          val syms1 = denot1.symbols
+          val syms2 = denot2.symbols
           val info1 = denot1.info
           val info2 = denot2.info
-          val sameSym = sym1 eq sym2
-          if (sameSym && info1 <:< info2) denot2
-          else if (sameSym && info2 <:< info1) denot1
+          def sameAsSet(sysm1: SymOrSyms, syms2: SymOrSyms) = syms1 match {
+            case sym: Symbol => sym eq syms2
+            case syms1: List[_] => syms1.toSet == syms2
+          }
+          val sameSyms = sameAsSet(syms1, syms2)
+          if (sameSyms && info1 <:< info2) denot2
+          else if (sameSyms && info2 <:< info1) denot1
           else {
-            val jointSym =
-              if (sameSym) sym1
+            val jointSyms =
+              if (sameSyms) syms1
               else {
+                ???
                 val owner2 = if (sym2 ne NoSymbol) sym2.owner else NoSymbol
                 /** Determine a symbol which is overridden by both sym1 and sym2.
                  *  Preference is given to accessible symbols.
@@ -367,10 +372,17 @@ object Denotations {
         s"multi-denotation with alternatives $alternatives does not implement operation $op")
   }
 
+  type SymOrSyms = AnyRef // should be Symbol | List[Symbols]
+
+  def subsumeInOne(s: SymOrSyms): Symbol = s match {
+    case sym: Symbol => sym
+    case _ => NoSymbol
+  }
+
   /** A non-overloaded denotation */
   abstract class SingleDenotation(symbol: Symbol) extends Denotation(symbol) with PreDenotation {
     def hasUniqueSym: Boolean
-    protected def newLikeThis(symbol: Symbol, info: Type): SingleDenotation
+    protected def newLikeThis(s: SymOrSyms, info: Type): SingleDenotation
 
     final def signature(implicit ctx: Context): Signature = {
       if (isType) Signature.NotAMethod // don't force info if this is a type SymDenotation
@@ -386,9 +398,11 @@ object Denotations {
       }
     }
 
-    def derivedSingleDenotation(symbol: Symbol, info: Type)(implicit ctx: Context): SingleDenotation =
-      if ((symbol eq this.symbol) && (info eq this.info)) this
-      else newLikeThis(symbol, info)
+    def symbols: SymOrSyms = symbol
+
+    def derivedSingleDenotation(s: SymOrSyms, info: Type)(implicit ctx: Context): SingleDenotation =
+      if ((s eq symbols) && (info eq this.info)) this
+      else newLikeThis(s, info)
 
     def orElse(that: => SingleDenotation) = if (this.exists) this else that
 
@@ -637,16 +651,19 @@ object Denotations {
     initValidFor: Period) extends NonSymSingleDenotation(symbol) {
     validFor = initValidFor
     override def hasUniqueSym: Boolean = true
-    protected def newLikeThis(s: Symbol, i: Type): SingleDenotation = new UniqueRefDenotation(s, i, validFor)
+    protected def newLikeThis(s: SymOrSyms, i: Type): SingleDenotation =
+      new UniqueRefDenotation(subsumeInOne(s), i, validFor)
   }
 
   class JointRefDenotation(
-    symbol: Symbol,
+    override val symbols: SymOrSyms,
     val infoOrCompleter: Type,
-    initValidFor: Period) extends NonSymSingleDenotation(symbol) {
+    initValidFor: Period) extends NonSymSingleDenotation(subsumeInOne(symbols)) {
     validFor = initValidFor
+
     override def hasUniqueSym = false
-    protected def newLikeThis(s: Symbol, i: Type): SingleDenotation = new JointRefDenotation(s, i, validFor)
+    protected def newLikeThis(s: SymOrSyms, i: Type): SingleDenotation =
+      new JointRefDenotation(s, i, validFor)
   }
 
   class ErrorDenotation(implicit ctx: Context) extends NonSymSingleDenotation(NoSymbol) {
@@ -654,7 +671,7 @@ object Denotations {
     override def hasUniqueSym = false
     def infoOrCompleter = NoType
     validFor = Period.allInRun(ctx.runId)
-    protected def newLikeThis(s: Symbol, i: Type): SingleDenotation = this
+    protected def newLikeThis(s: SymOrSyms, i: Type): SingleDenotation = this
   }
 
   /** An error denotation that provides more info about the missing reference.

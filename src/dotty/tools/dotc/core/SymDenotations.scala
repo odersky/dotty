@@ -757,7 +757,8 @@ object SymDenotations {
 
     // ----- copies ------------------------------------------------------
 
-    protected def newLikeThis(s: Symbol, i: Type): SingleDenotation = new UniqueRefDenotation(s, i, validFor)
+    protected def newLikeThis(s: SymOrSyms, i: Type): SingleDenotation =
+      new UniqueRefDenotation(subsumeInOne(s), i, validFor)
 
     /** Copy this denotation, overriding selective fields */
     final def copySymDenotation(
