@@ -14,7 +14,7 @@ object Config {
 
   final val flagInstantiationToNothing = false
 
-  final val checkTermRefs = false
+  final val checkNoDoubleBindings = true
 
   /** Throw an exception if a deep subtype recursion is detected */
   final val flagDeepSubTypeRecursions = true
