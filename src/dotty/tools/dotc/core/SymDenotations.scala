@@ -67,11 +67,9 @@ object SymDenotations {
     final val name: Name,
     initFlags: FlagSet,
     initInfo: Type,
-    initPrivateWithin: Symbol = NoSymbol) extends SingleDenotation(symbol) {
+    initPrivateWithin: Symbol = NoSymbol) extends SingleDenotation(symbol) with UniqueRef {
 
     //assert(symbol.id != 4940, name)
-
-    override def hasUniqueSym: Boolean = exists
 
     // ------ Getting and setting fields -----------------------------
 
@@ -823,8 +821,6 @@ object SymDenotations {
     def debugString = toString+"#"+symbol.id // !!! DEBUG
 
     // ----- copies and transforms  ----------------------------------------
-
-    protected def newLikeThis(s: Symbol, i: Type): SingleDenotation = new UniqueRefDenotation(s, i, validFor)
 
     /** Copy this denotation, overriding selective fields */
     final def copySymDenotation(

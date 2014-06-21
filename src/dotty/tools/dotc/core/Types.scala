@@ -398,10 +398,11 @@ object Types {
       def goRefined(tp: RefinedType) = {
         val pdenot = go(tp.parent)
         val rinfo = tp.refinedInfo.substThis(tp, pre)
-        if (name.isTypeName) { // simplified case that runs more efficiently
-          val jointInfo = if (rinfo.isAlias) rinfo else pdenot.info & rinfo
-          pdenot.asSingleDenotation.derivedSingleDenotation(pdenot.symbol, jointInfo)
-        } else
+        if (name.isTypeName) // specialized case to avoid cyclic references when facing F-bounds
+          new LazyUniqueRefDenotation(pdenot.symbol, pdenot.validFor) {
+            def computeInfo = if (rinfo.isAlias) rinfo else pdenot.info & rinfo
+          }
+        else
           pdenot & (new JointRefDenotation(NoSymbol, rinfo, Period.allInRun(ctx.runId)), pre)
       }
       def goThis(tp: ThisType) = {

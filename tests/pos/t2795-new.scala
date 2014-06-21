@@ -12,8 +12,17 @@ trait Config {
   // type T <: Element[_]
 }
 
+class Foo {
+  type T <: Element[T]
+}
+
 trait Transform { self: Config =>
+
+  val foo = new Foo
+  val x: foo.T = ???
+/*
   def processBlock(block: Array[T]): Unit = {
-    var X = new Array[T](1)
+    //var X = new Array[T](1)
   }
+*/
 }

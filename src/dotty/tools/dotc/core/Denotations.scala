@@ -486,7 +486,14 @@ object Denotations {
      */
     private def bringForward()(implicit ctx: Context): SingleDenotation = this match {
       case denot: SymDenotation if ctx.stillValid(denot) =>
-        if (denot.exists) assert(ctx.runId > validFor.runId, s"denotation $denot invalid in run ${ctx.runId}. ValidFor: $validFor")
+        // We used to have an assertion here:
+        //
+        //  if (denot.exists) assert(ctx.runId > validFor.runId, s"denotation $denot invalid in run ${ctx.runId}. ValidFor: $validFor")
+        //
+        // But with lazy asSeenFrom computations this is no longer true. An asSeenFrom
+        // might be computed in a later run but the computation would then capture an
+        // earlier context (@see LazyUniqueRefDenotation#derivedAsSeenFrom). As long as the
+        // denotation is still valid, we are OK with backwards time travel here, though.
         var d: SingleDenotation = denot
         do {
           d.validFor = Period(ctx.period.runId, d.validFor.firstPhaseId, d.validFor.lastPhaseId)
@@ -640,13 +647,30 @@ object Denotations {
         case _ => if (symbol.exists) symbol.owner else NoSymbol
       }
       if (!owner.membersNeedAsSeenFrom(pre)) this
-      else derivedSingleDenotation(symbol, info.asSeenFrom(pre, owner))
+      else derivedAsSeenFrom(symbol, info, pre, owner)
     }
+
+    protected def derivedAsSeenFrom(symbol: Symbol, prevInfo: Type, pre: Type, owner: Symbol)(implicit ctx: Context): SingleDenotation =
+      derivedSingleDenotation(symbol, prevInfo.asSeenFrom(pre, owner))
 
     private def overlaps(fs: FlagSet)(implicit ctx: Context): Boolean = this match {
       case sd: SymDenotation => sd is fs
       case _ => symbol is fs
     }
+  }
+
+  /** A trait for denotations that refer to a unique symbol */
+  trait UniqueRef extends SingleDenotation {
+    override def hasUniqueSym: Boolean = exists
+
+    protected def newLikeThis(symbol: Symbol, info: Type): SingleDenotation =
+      new StrictUniqueRefDenotation(symbol, info, validFor)
+
+    override protected
+    def derivedAsSeenFrom(symbol: Symbol, prevInfo: Type, pre: Type, owner: Symbol)(implicit ctx: Context): SingleDenotation =
+      new LazyUniqueRefDenotation(symbol, validFor) {
+        def computeInfo = prevInfo.asSeenFrom(pre, owner)
+      }
   }
 
   abstract class NonSymSingleDenotation(symbol: Symbol) extends SingleDenotation(symbol) {
@@ -655,13 +679,26 @@ object Denotations {
     def isType = infoOrCompleter.isInstanceOf[TypeType]
   }
 
-  class UniqueRefDenotation(
+  class StrictUniqueRefDenotation(
     symbol: Symbol,
     val infoOrCompleter: Type,
-    initValidFor: Period) extends NonSymSingleDenotation(symbol) {
+    initValidFor: Period) extends NonSymSingleDenotation(symbol) with UniqueRef {
     validFor = initValidFor
-    override def hasUniqueSym: Boolean = true
-    protected def newLikeThis(s: Symbol, i: Type): SingleDenotation = new UniqueRefDenotation(s, i, validFor)
+  }
+
+  abstract class LazyUniqueRefDenotation(
+    symbol: Symbol,
+    initValidFor: Period) extends NonSymSingleDenotation(symbol) with UniqueRef {
+    validFor = initValidFor
+
+    private var myInfo: Type = null
+
+    def computeInfo: Type
+
+    def infoOrCompleter: Type = {
+      if (myInfo == null) myInfo = computeInfo
+      myInfo
+    }
   }
 
   class JointRefDenotation(
