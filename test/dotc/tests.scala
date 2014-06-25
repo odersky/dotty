@@ -25,7 +25,7 @@ class tests extends CompilerTest {
   val newDir = "./tests/new/"
   val dotcDir = "./src/dotty/"
 
-  @Test def pos_test = compileFile(posDir, "test", doErase)
+  //@Test def pos_test = compileFile(posDir, "test", doErase) // no -Ycheck:front yet
   @Test def pos_erasure = compileFile(posDir, "erasure", doErase)
   @Test def pos_Coder() = compileFile(posDir, "Coder", doErase)
   @Test def pos_blockescapes() = compileFile(posDir, "blockescapes", doErase)
