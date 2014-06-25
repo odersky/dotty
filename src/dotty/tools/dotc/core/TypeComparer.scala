@@ -181,11 +181,7 @@ class TypeComparer(initctx: Context) extends DotClass {
         if (fromBelow) oldBounds.derivedTypeBounds(oldBounds.lo | bound, oldBounds.hi)
         else oldBounds.derivedTypeBounds(oldBounds.lo, oldBounds.hi & bound)
       finally ignoreConstraint = saved
-    val res =
-      (param == bound) || (oldBounds eq newBounds) || updateConstraint(param, newBounds)
-    constr.println(s"added1 constraint $param ${if (fromBelow) ">:" else "<:"} $bound = $res")
-    if (res) constr.println(constraint.show)
-    res
+    (param == bound) || (oldBounds eq newBounds) || updateConstraint(param, newBounds)
   }
 
   /** Make p2 = p1, transfer all bounds of p2 to p1 */
@@ -210,31 +206,30 @@ class TypeComparer(initctx: Context) extends DotClass {
     assert(!frozenConstraint)
     val bound = bound0.dealias.stripTypeVar
     def description = s"${param.show} ${if (fromBelow) ">:>" else "<:<"} ${bound.show} (${bound.getClass}) to ${constraint.show}"
-    constr.println(s"adding $description")
-    val res = bound match {
-      case bound: PolyParam if constraint contains bound =>
-        val TypeBounds(lo, hi) = constraint.bounds(bound)
-        if (lo eq hi)
-          addConstraint(param, lo, fromBelow)
-        else if (param == bound)
+    ctx.traceIndented(s"adding $description", constr) {
+      bound match {
+        case bound: PolyParam if constraint contains bound =>
+          val TypeBounds(lo, hi) = constraint.bounds(bound)
+          if (lo eq hi)
+            addConstraint(param, lo, fromBelow)
+          else if (param == bound)
+            true
+          else if (fromBelow && param.occursIn(lo, fromBelow = true))
+            unify(param, bound)
+          else if (!fromBelow && param.occursIn(hi, fromBelow = false))
+            unify(bound, param)
+          else
+            addConstraint1(param, bound, fromBelow) &&
+              addConstraint1(bound, param, !fromBelow)
+        case bound: AndOrType if fromBelow != bound.isAnd =>
+          addConstraint(param, bound.tp1, fromBelow) &&
+            addConstraint(param, bound.tp2, fromBelow)
+        case bound: WildcardType =>
           true
-        else if (fromBelow && param.occursIn(lo, fromBelow = true))
-          unify(param, bound)
-        else if (!fromBelow && param.occursIn(hi, fromBelow = false))
-          unify(bound, param)
-        else
-          addConstraint1(param, bound, fromBelow) &&
-          addConstraint1(bound, param, !fromBelow)
-      case bound: AndOrType if fromBelow != bound.isAnd =>
-        addConstraint(param, bound.tp1, fromBelow) &&
-        addConstraint(param, bound.tp2, fromBelow)
-      case bound: WildcardType =>
-        true
-      case bound => // !!! remove to keep the originals
-        addConstraint1(param, bound, fromBelow)
+        case bound => // !!! remove to keep the originals
+          addConstraint1(param, bound, fromBelow)
+      }
     }
-    constr.println(s"added $description = ${constraint.show}")
-    res
   }
 
   def isConstrained(param: PolyParam): Boolean =
@@ -711,8 +706,8 @@ class TypeComparer(initctx: Context) extends DotClass {
     case tp2 @ TypeBounds(lo2, hi2) =>
       def compareTypeBounds = tp1 match {
         case tp1 @ TypeBounds(lo1, hi1) =>
-          (tp2.variance > 0 && tp1.variance >= 0 || isSubType(lo2, lo1)) &&
-          (tp2.variance < 0 && tp1.variance <= 0 || isSubType(hi1, hi2))
+          (tp2.variance < 0 && tp1.variance <= 0 || isSubType(hi1, hi2)) &&
+          (tp2.variance > 0 && tp1.variance >= 0 || isSubType(lo2, lo1))
         case tp1: ClassInfo =>
           val tt = tp1.typeRef
           isSubType(lo2, tt) && isSubType(tt, hi2)
