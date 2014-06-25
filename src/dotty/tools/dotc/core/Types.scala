@@ -420,8 +420,24 @@ object Types {
           // loadClassWithPrivateInnerAndSubSelf in ShowClassTests
           go(tp.cls.typeRef) orElse d
       }
-      def goAnd(l: Type, r: Type) = go(l) & (go(r), pre)
-      def goOr(l: Type, r: Type) = go(l) | (go(r), pre)
+      def goAnd(l: Type, r: Type) = {
+        val lm = go(l)
+        val rm = go(r)
+        if (lm.isLazy || rm.isLazy)
+          new LazyUniqueRefDenotation(andSym(lm.symbol, rm.symbol), lm.validFor & rm.validFor) {
+            override def computeInfo = lm.info & rm.info
+          }
+        else lm & (rm, pre)
+      }
+      def goOr(l: Type, r: Type) = {
+        val lm = go(l)
+        val rm = go(r)
+        if (lm.isLazy || rm.isLazy)
+          new LazyUniqueRefDenotation(orSym(lm.symbol, rm.symbol, pre), lm.validFor & rm.validFor) {
+            override def computeInfo = lm.info | rm.info
+          }
+        else lm | (rm, pre)
+      }
       go(this)
     } catch {
       case ex: MergeError =>

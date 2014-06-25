@@ -116,6 +116,9 @@ object Denotations {
     /** Is this a reference to a term symbol? */
     def isTerm: Boolean = !isType
 
+    /** Overridden in LazyUniqueRefDenotation */
+    def isLazy: Boolean = false
+
     /** Is this denotation overloaded? */
     final def isOverloaded = isInstanceOf[MultiDenotation]
 
@@ -240,14 +243,9 @@ object Denotations {
               if (sym1Accessible && info1 <:< info2) denot1
               else if (sym1Accessible && sym2.exists && !sym2Accessible) denot1
               else if (sym2Accessible && sym1.exists && !sym1Accessible) denot2
-              else {
-                val sym =
-                  if (!sym1.exists) sym2
-                  else if (!sym2.exists) sym1
-                  else if (sym2 isAsConcrete sym1) sym2
-                  else sym1
-                new JointRefDenotation(sym, info1 & info2, denot1.validFor & denot2.validFor)
-              }
+              else
+                new JointRefDenotation(
+                  andSym(sym1, sym2), info1 & info2, denot1.validFor & denot2.validFor)
             }
           }
           else NoDenotation
@@ -277,31 +275,11 @@ object Denotations {
           val sym2 = denot2.symbol
           val info1 = denot1.info
           val info2 = denot2.info
-          val sameSym = sym1 eq sym2
-          if (sameSym && info1 <:< info2) denot2
-          else if (sameSym && info2 <:< info1) denot1
-          else {
-            val jointSym =
-              if (sameSym) sym1
-              else {
-                val owner2 = if (sym2 ne NoSymbol) sym2.owner else NoSymbol
-                /** Determine a symbol which is overridden by both sym1 and sym2.
-                 *  Preference is given to accessible symbols.
-                 */
-                def lubSym(overrides: Iterator[Symbol], previous: Symbol): Symbol =
-                  if (!overrides.hasNext) previous
-                  else {
-                    val candidate = overrides.next
-                    if (owner2 derivesFrom candidate.owner)
-                      if (candidate isAccessibleFrom pre) candidate
-                      else lubSym(overrides, previous orElse candidate)
-                    else
-                      lubSym(overrides, previous)
-                  }
-                lubSym(sym1.allOverriddenSymbols, NoSymbol)
-              }
-            new JointRefDenotation(jointSym, info1 | info2, denot1.validFor & denot2.validFor)
-          }
+          if ((sym1 eq sym2) && info1 <:< info2) denot2
+          else if ((sym1 eq sym2) && info2 <:< info1) denot1
+          else
+            new JointRefDenotation(
+                orSym(sym1, sym2, pre), info1 | info2, denot1.validFor & denot2.validFor)
         }
         else NoDenotation
 
@@ -326,6 +304,32 @@ object Denotations {
 
     def toText(printer: Printer): Text = printer.toText(this)
   }
+
+  def andSym(sym1: Symbol, sym2: Symbol)(implicit ctx: Context): Symbol =
+    if (!sym1.exists) sym2
+    else if (!sym2.exists) sym1
+    else if (sym2 isAsConcrete sym1) sym2
+    else sym1
+
+  def orSym(sym1: Symbol, sym2: Symbol, pre: Type)(implicit ctx: Context): Symbol =
+    if (sym1 eq sym2) sym1
+    else {
+      val owner2 = if (sym2 ne NoSymbol) sym2.owner else NoSymbol
+      /** Determine a symbol which is overridden by both sym1 and sym2.
+       *  Preference is given to accessible symbols.
+       */
+      def lubSym(overrides: Iterator[Symbol], previous: Symbol): Symbol =
+        if (!overrides.hasNext) previous
+        else {
+          val candidate = overrides.next
+          if (owner2 derivesFrom candidate.owner)
+            if (candidate isAccessibleFrom pre) candidate
+            else lubSym(overrides, previous orElse candidate)
+          else
+            lubSym(overrides, previous)
+        }
+      lubSym(sym1.allOverriddenSymbols, NoSymbol)
+    }
 
   /** An overloaded denotation consisting of the alternatives of both given denotations.
    */
@@ -699,6 +703,7 @@ object Denotations {
       if (myInfo == null) myInfo = computeInfo
       myInfo
     }
+    override def isLazy = true
   }
 
   class JointRefDenotation(
