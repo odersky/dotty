@@ -461,6 +461,10 @@ trait Applications extends Compatibility { self: Typer =>
             val result = app.result
             ConstFold(result)
           } { (failedVal, failedState) =>
+            // need to keep failed constraint around because it might bind
+            // TypeVars in proto.typedArgs
+            ctx.typerState.constraint = failedState.constraint
+
             val fun2 = tryInsertImplicitOnQualifier(fun1, proto)
             if (fun1 eq fun2) {
               failedState.commit()
@@ -486,7 +490,7 @@ trait Applications extends Compatibility { self: Typer =>
      *
      *     { val xs = es; e' = e' + args }
      */
-     def typedOpAssign: Tree = track("typedOpAssign") {
+    def typedOpAssign: Tree = track("typedOpAssign") {
       val Apply(Select(lhs, name), rhss) = tree
       val lhs1 = typedExpr(lhs)
       val liftedDefs = new mutable.ListBuffer[Tree]
