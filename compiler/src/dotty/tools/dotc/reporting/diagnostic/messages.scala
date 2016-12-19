@@ -901,7 +901,8 @@ object messages {
     val explanation = ""
   }
 
-  case class ExistentialTypesNoLongerSupported()(implicit ctx: Context) extends Message(34) {
+  case class ExistentialTypesNoLongerSupported()(implicit ctx: Context)
+  extends Message(34) {
     val kind = "Syntax"
     val msg =
       hl"""|Existential types are no longer supported -
@@ -1001,5 +1002,13 @@ object messages {
            |- this is a valid type using a path
            |${typeCode}
            |"""
+  }
+
+  case class ErasedType()(implicit ctx: Context)
+  extends Message(37) {
+    val kind = "Erased Type"
+    val msg =
+      i"abstract type pattern is unchecked since it is eliminated by erasure"
+    val explanation = ""
   }
 }
