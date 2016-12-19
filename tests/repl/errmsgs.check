@@ -79,7 +79,7 @@ scala> class Foo() { def bar: Int = 1 }; val foo = new Foo(); foo.barr
   |                                                       ^^^^^^^^
   |        value `barr` is not a member of Foo(foo) - did you mean `foo.bar`?
 scala> def unsafeCast[S](a: Any) = a match { case s: S => s; case _ => ??? }
--- Warning: <console> ----------------------------------------------------------
+-- [E034] Erased Type Unchecked Warning: <console> -----------------------------
 4 |def unsafeCast[S](a: Any) = a match { case s: S => s; case _ => ??? }
   |                                                ^
   |      abstract type pattern is unchecked since it is eliminated by erasure
