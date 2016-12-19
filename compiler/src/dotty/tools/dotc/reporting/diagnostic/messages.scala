@@ -1009,6 +1009,5 @@ object messages {
     val kind = "Erased Type"
     val msg =
       i"abstract type pattern is unchecked since it is eliminated by erasure"
-    val explanation = ""
   }
 }
