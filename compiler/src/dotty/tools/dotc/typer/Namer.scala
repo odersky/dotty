@@ -763,6 +763,7 @@ class Namer { typer: Typer =>
       case original: untpd.DefDef if sym.isInlineableMethod =>
         Inliner.registerInlineInfo(
             sym,
+            original.rhs,
             implicit ctx => typedAheadExpr(original).asInstanceOf[tpd.DefDef].rhs
           )(localContext(sym))
       case _ =>
