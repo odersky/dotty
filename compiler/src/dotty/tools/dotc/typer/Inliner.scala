@@ -73,7 +73,9 @@ object Inliner {
 
       def postTransform(tree: Tree)(implicit ctx: Context) = tree match {
         case Assign(lhs, rhs) if lhs.symbol.name.is(InlineAccessorName) =>
-          cpy.Apply(tree)(useSetter(lhs), rhs :: Nil)
+          val setter = useSetter(lhs)
+          if (inlineSym.isTransparentMethod) tree // just generate a setter, but don't integrate it in the tree
+          else cpy.Apply(tree)(setter, rhs :: Nil)
         case _ =>
           tree
       }
