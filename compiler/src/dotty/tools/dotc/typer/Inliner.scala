@@ -821,6 +821,19 @@ class Inliner(call: tpd.Tree, rhsToInline: tpd.Tree)(implicit ctx: Context) {
         EmptyTree
     }
 
+    override def ensureAccessible(tpe: Type, superAccess: Boolean, pos: Position)(implicit ctx: Context): Type = {
+      tpe match {
+        case tpe: NamedType if tpe.symbol.exists && !tpe.symbol.isAccessibleFrom(tpe.prefix, superAccess) =>
+          tpe.info match {
+            case TypeAlias(alias) => return ensureAccessible(alias, superAccess, pos)
+            case info: ConstantType if tpe.symbol.isStable => return info
+            case _ =>
+          }
+        case _ =>
+      }
+      super.ensureAccessible(tpe, superAccess, pos)
+    }
+
     /** The context to be used for sub-expressions that are not in redex position. */
     protected def noRedexCtx(implicit ctx: Context): Context
 
@@ -911,19 +924,6 @@ class Inliner(call: tpd.Tree, rhsToInline: tpd.Tree)(implicit ctx: Context) {
      *  position or not.
      */
     def noRedexCtx(implicit ctx: Context) = ctx
-
-    override def ensureAccessible(tpe: Type, superAccess: Boolean, pos: Position)(implicit ctx: Context): Type = {
-      tpe match {
-        case tpe: NamedType if !tpe.symbol.isAccessibleFrom(tpe.prefix, superAccess) =>
-          tpe.info match {
-            case TypeAlias(alias) => return ensureAccessible(alias, superAccess, pos)
-            case info: ConstantType if tpe.symbol.isStable => return info
-            case _ =>
-          }
-        case _ =>
-      }
-      super.ensureAccessible(tpe, superAccess, pos)
-    }
 
     override def typedIdent(tree: untpd.Ident, pt: Type)(implicit ctx: Context) =
       tryInline(tree.asInstanceOf[tpd.Tree]) `orElse` super.typedIdent(tree, pt)
