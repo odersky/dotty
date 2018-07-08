@@ -95,12 +95,9 @@ object Mode {
   /** We are in the IDE */
   val Interactive = newMode(20, "Interactive")
 
-  /** Read comments from definitions when unpickling from TASTY */
-  val ReadComments = newMode(21, "ReadComments")
-
   /** We are typing the body of a transparent method */
-  val TransparentBody = newMode(22, "TransparentBody")
+  val TransparentBody = newMode(21, "TransparentBody")
 
-  /** Suppress inlining transparent method applications */
-  val NoInlineTransparent = newMode(23, "NoInlineTransparent")
+  /** Read comments from definitions when unpickling from TASTY */
+  val ReadComments = newMode(22, "ReadComments")
 }

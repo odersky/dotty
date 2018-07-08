@@ -383,7 +383,6 @@ object Inliner {
 
     def suppressInline =
       ctx.owner.ownersIterator.exists(_.isInlineableMethod) ||
-      meth.isTransparentMethod && ctx.mode.is(Mode.NoInlineTransparent) ||
       ctx.settings.YnoInline.value ||
       ctx.isAfterTyper ||
       ctx.reporter.hasErrors
@@ -834,9 +833,6 @@ class Inliner(call: tpd.Tree, rhsToInline: tpd.Tree)(implicit ctx: Context) {
       super.ensureAccessible(tpe, superAccess, pos)
     }
 
-    /** The context to be used for sub-expressions that are not in redex position. */
-    protected def noRedexCtx(implicit ctx: Context): Context
-
     override def typedIf(tree: untpd.If, pt: Type)(implicit ctx: Context) = {
       val cond1 = typed(tree.cond, defn.BooleanType)
       cond1.tpe.widenTermRefExpr match {
@@ -847,7 +843,7 @@ class Inliner(call: tpd.Tree, rhsToInline: tpd.Tree)(implicit ctx: Context) {
           else Block(cond1 :: Nil, selected)
         case _ =>
           val if1 = untpd.cpy.If(tree)(cond = untpd.TypedSplice(cond1))
-          super.typedIf(if1, pt)(noRedexCtx)
+          super.typedIf(if1, pt)
       }
     }
 
@@ -893,37 +889,15 @@ class Inliner(call: tpd.Tree, rhsToInline: tpd.Tree)(implicit ctx: Context) {
   /** A full typer used for transparent methods */
   private class TransparentTyper extends Typer with InlineTyping {
 
-    /** Transparent methods don't inline recursively unless in redex position */
-    def noRedexCtx(implicit ctx: Context) = ctx.addMode(Mode.NoInlineTransparent)
-
     override def typedTypedSplice(tree: untpd.TypedSplice)(implicit ctx: Context): Tree =
       reduceProjection(tryInline(tree.splice) `orElse` super.typedTypedSplice(tree))
 
     override def typedSelect(tree: untpd.Select, pt: Type)(implicit ctx: Context) =
       constToLiteral(reduceProjection(super.typedSelect(tree, pt)))
-
-    override def typedValDef(tree: untpd.ValDef, sym: Symbol)(implicit ctx: Context) = {
-      import untpd.modsDeco
-      super.typedValDef(tree, sym)(if (tree.mods.is(Lazy)) noRedexCtx else ctx)
-    }
-
-    override def typedDefDef(tree: untpd.DefDef, sym: Symbol)(implicit ctx: Context) =
-      super.typedDefDef(tree, sym)(noRedexCtx)
-
-    override def typedTypeDef(tree: untpd.TypeDef, sym: Symbol)(implicit ctx: Context) =
-      super.typedTypeDef(tree, sym)(noRedexCtx)
-
-    override def typedClassDef(tree: untpd.TypeDef, sym: ClassSymbol)(implicit ctx: Context) =
-      super.typedClassDef(tree, sym)(noRedexCtx)
   }
 
   /** A re-typer used for inlined methods */
   private class InlineReTyper extends ReTyper with InlineTyping {
-
-    /** Inline methods always expand all recursive inline calls, whether in redex
-     *  position or not.
-     */
-    def noRedexCtx(implicit ctx: Context) = ctx
 
     override def typedIdent(tree: untpd.Ident, pt: Type)(implicit ctx: Context) =
       tryInline(tree.asInstanceOf[tpd.Tree]) `orElse` super.typedIdent(tree, pt)
