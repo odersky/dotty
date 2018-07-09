@@ -18,11 +18,11 @@ class Valify(val simplifyPhase: Simplify) extends Optimisation {
   // Either a duplicate or a read through series of immutable fields.
   val defined: MutableSymbolMap[ValDef] = newMutableSymbolMap
 
-  val firstRead: MutableSymbolMap[RefTree] = newMutableSymbolMap
+  val firstRead: MutableSymbolMap[RefTree] = newMutableSymbolMap[RefTree]
 
-  val firstWrite: MutableSymbolMap[Assign] = newMutableSymbolMap
+  val firstWrite: MutableSymbolMap[Assign] = newMutableSymbolMap[Assign]
 
-  val secondWrite: MutableSymbolMap[Assign] = newMutableSymbolMap
+  val secondWrite: MutableSymbolMap[Assign] = newMutableSymbolMap[Assign]
 
   def clear(): Unit = {
     defined.clear()

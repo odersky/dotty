@@ -198,7 +198,10 @@ object Scanners {
 
     private def handleMigration(keyword: Token): Token =
       if (!isScala2Mode) keyword
-      else if (keyword == INLINE) treatAsIdent()
+      else if (  keyword == ENUM
+              || keyword == ERASED
+              || keyword == TRANSPARENT) treatAsIdent()
+        // TODO: Add other Scala-3 keywords here?
       else keyword
 
 

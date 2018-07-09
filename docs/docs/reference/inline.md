@@ -123,7 +123,7 @@ Since `inline` is now a keyword, it would be a syntax error to write
 `@inline`. However, one can still refer to the annotation by putting
 it in backticks, i.e.
 
-    @`inline` def ...
+    @inline def ...
 
 The Dotty compiler ignores `@inline` annotated definitions. To cross
 compile between both Dotty and Scalac, we introduce a new `@forceInline`

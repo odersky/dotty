@@ -38,4 +38,22 @@ object transparents {
     }
     val inner = new Inner
   }
+/* @@@ FIXME: Cannot deal with non-direct inline accessors
+  class C[T](private[transparents] val x: T) {
+    private[transparents] def next[U](y: U): (T, U) = (xx, y)
+    private[transparents] var xx: T =  _
+  }
+
+  class TestPassing {
+    transparent def foo[A](x: A): (A, Int) = {
+      val c = new C[A](x)
+      c.xx = c.x
+      c.next(1)
+    }
+    transparent def bar[A](x: A): (A, String) = {
+      val c = new C[A](x)
+      c.xx = c.x
+      c.next("")
+    }
+  } */
 }
