@@ -28,6 +28,7 @@ import transform.TypeUtils._
 import reporting.trace
 import util.Positions.Position
 import util.Property
+import ast.TreeInfo
 
 object Inliner {
   import tpd._
@@ -39,7 +40,8 @@ object Inliner {
   private val ContextualImplicit = new Property.StickyKey[Unit]
 
   def markContextualImplicit(tree: Tree)(implicit ctx: Context): Unit =
-    methPart(tree).putAttachment(ContextualImplicit, ())
+    if (!defn.ScalaPredefModule.moduleClass.derivesFrom(tree.symbol.maybeOwner))
+      methPart(tree).putAttachment(ContextualImplicit, ())
 
   /** A key to be used in a context property that provides a map from enclosing implicit
    *  value bindings to their right hand sides.
@@ -743,7 +745,8 @@ class Inliner(call: tpd.Tree, rhsToInline: tpd.Tree)(implicit ctx: Context) {
 
   /** If we are inlining a transparent method and `tree` is equivalent to `new C(args).x`
    *  where class `C` does not have initialization code and `x` is a parameter corresponding
-   *  to one of the arguments `args`, the corresponding argument, otherwise `tree` itself.
+   *  to one of the arguments `args`, the corresponding argument, prefixed by the evaluation
+   *  of impure arguments, otherwise `tree` itself.
    */
   def reduceProjection(tree: Tree)(implicit ctx: Context): Tree = {
     if (meth.isTransparentMethod) {
@@ -761,8 +764,17 @@ class Inliner(call: tpd.Tree, rhsToInline: tpd.Tree)(implicit ctx: Context) {
             }
           val idx = cls.asClass.paramAccessors.indexWhere(matches(_, tree.symbol))
           if (idx >= 0 && idx < args.length) {
-            inlining.println(i"projecting $tree -> ${args(idx)}")
-            return seq(prefix, args(idx))
+            def collectImpure(from: Int, end: Int) =
+              (from until end).filterNot(i => isPureExpr(args(i))).toList.map(args)
+            val leading = collectImpure(0, idx)
+            val trailing = collectImpure(idx + 1, args.length)
+            val arg = args(idx)
+            val argInPlace =
+              if (trailing.isEmpty) arg
+              else letBindUnless(TreeInfo.Pure, arg)(seq(trailing, _))
+            val reduced = seq(prefix, seq(leading, argInPlace))
+            inlining.println(i"projecting $tree -> ${reduced}")
+            return reduced
           }
         case _ =>
       }
@@ -806,6 +818,19 @@ class Inliner(call: tpd.Tree, rhsToInline: tpd.Tree)(implicit ctx: Context) {
         rhs
       case _ =>
         EmptyTree
+    }
+
+    override def ensureAccessible(tpe: Type, superAccess: Boolean, pos: Position)(implicit ctx: Context): Type = {
+      tpe match {
+        case tpe: NamedType if tpe.symbol.exists && !tpe.symbol.isAccessibleFrom(tpe.prefix, superAccess) =>
+          tpe.info match {
+            case TypeAlias(alias) => return ensureAccessible(alias, superAccess, pos)
+            case info: ConstantType if tpe.symbol.isStable => return info
+            case _ =>
+          }
+        case _ =>
+      }
+      super.ensureAccessible(tpe, superAccess, pos)
     }
 
     override def typedIf(tree: untpd.If, pt: Type)(implicit ctx: Context) = {
@@ -873,19 +898,6 @@ class Inliner(call: tpd.Tree, rhsToInline: tpd.Tree)(implicit ctx: Context) {
 
   /** A re-typer used for inlined methods */
   private class InlineReTyper extends ReTyper with InlineTyping {
-
-    override def ensureAccessible(tpe: Type, superAccess: Boolean, pos: Position)(implicit ctx: Context): Type = {
-      tpe match {
-        case tpe: NamedType if !tpe.symbol.isAccessibleFrom(tpe.prefix, superAccess) =>
-          tpe.info match {
-            case TypeAlias(alias) => return ensureAccessible(alias, superAccess, pos)
-            case info: ConstantType if tpe.symbol.isStable => return info
-            case _ =>
-          }
-        case _ =>
-      }
-      super.ensureAccessible(tpe, superAccess, pos)
-    }
 
     override def typedIdent(tree: untpd.Ident, pt: Type)(implicit ctx: Context) =
       tryInline(tree.asInstanceOf[tpd.Tree]) `orElse` super.typedIdent(tree, pt)
