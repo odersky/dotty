@@ -550,12 +550,6 @@ class TreeUnpickler(reader: TastyReader,
         sym.completer.withDecls(newScope)
         forkAt(templateStart).indexTemplateParams()(localContext(sym))
       }
-      else if (sym.isInlinedMethod)
-        sym.addAnnotation(LazyBodyAnnotation { ctx0 =>
-          implicit val ctx: Context = localContext(sym)(ctx0).addMode(Mode.ReadPositions)
-            // avoids space leaks by not capturing the current context
-          forkAt(rhsStart).readTerm()
-        })
       goto(start)
       sym
     }
@@ -591,7 +585,6 @@ class TreeUnpickler(reader: TastyReader,
           case ERASED => addFlag(Erased)
           case LAZY => addFlag(Lazy)
           case OVERRIDE => addFlag(Override)
-          case INLINE => addFlag(Inline)
           case TRANSPARENT => addFlag(Transparent)
           case MACRO => addFlag(Macro)
           case STATIC => addFlag(JavaStatic)
@@ -742,11 +735,6 @@ class TreeUnpickler(reader: TastyReader,
       def readRhs(implicit ctx: Context) =
         if (nothingButMods(end))
           EmptyTree
-        else if (sym.isInlinedMethod)
-          // The body of an inline method is stored in an annotation, so no need to unpickle it again
-          new Trees.Lazy[Tree] {
-            def complete(implicit ctx: Context) = typer.Inliner.bodyToInline(sym)
-          }
         else
           readLater(end, rdr => ctx => rdr.readTerm()(ctx.retractMode(Mode.InSuperCall)))
 
