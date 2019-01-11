@@ -103,15 +103,19 @@ object ResolveSuper {
       val other = bcs.head.info.nonPrivateDecl(memberName)
       if (ctx.settings.Ydebug.value)
         ctx.log(i"rebindsuper ${bcs.head} $other deferred = ${other.symbol.is(Deferred)}")
-      val otherMember = other.matchingDenotation(base.thisType, base.thisType.memberInfo(acc))
-
-      // Having a matching denotation is not enough: it should also be a subtype
-      // of the superaccessor's type, see i5433.scala for an example where this matters
-      if (otherMember.asSeenFrom(base.typeRef).info <:< acc.asSeenFrom(base.typeRef).info)
-        sym = otherMember.symbol
-
+      sym = other.matchingDenotation(base.thisType, base.thisType.memberInfo(acc)).symbol
       bcs = bcs.tail
     }
+    // Having a matching denotation is not enough: it should also be a subtype
+    // of the superaccessor's type, see i5433.scala for an example where this matters
+    if (!(sym.asSeenFrom(base.typeRef).info <:< acc.asSeenFrom(base.typeRef).info))
+      ctx.error(em"""illegal mixin super call target:
+                    |
+                    |  ${sym.showDcl}  in ${sym.owner}
+                    |
+                    |does not conform to expected target type
+                    |
+                    |  ${acc.info}""", base.pos)
     assert(sym.exists)
     sym
   }

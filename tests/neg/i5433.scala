@@ -14,8 +14,7 @@ trait C extends A[Y] {
   def superFoo: Y = super.foo // C will have an abstract `def C$$super$foo: Y` because of this call
 }
 
-class Fail extends B with C
-  // Should generate `def C$$super$foo: Y = super[A].foo` and not `= super[B].foo`
+class Fail extends B with C  // error: illegal mixin super call target
 
 object Test {
   def main(args: Array[String]): Unit = {
