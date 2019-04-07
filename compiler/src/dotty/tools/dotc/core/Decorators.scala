@@ -140,6 +140,10 @@ object Decorators {
   implicit class ListOfListDecorator[T](val xss: List[List[T]]) extends AnyVal {
     def nestedMap[U](f: T => U): List[List[U]] = xss map (_ map f)
     def nestedMapconserve[U](f: T => U): List[List[U]] = xss mapconserve (_ mapconserve f)
+    def headOrNil: List[T] = xss match {
+      case xs :: _ => xs
+      case nil => Nil
+    }
   }
 
   implicit class TextToString(val text: Text) extends AnyVal {

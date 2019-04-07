@@ -21,6 +21,8 @@ object desugar {
   import untpd._
   import DesugarEnums._
 
+  val newScheme = true
+
   /** If a Select node carries this attachment, suppress the check
    *  that its type refers to an acessible symbol.
    */
@@ -364,13 +366,13 @@ object desugar {
       }
       else originalTparams
     val constrTparams = impliedTparams.map(toDefParam)
+    if (isCaseClass && originalTparams.isEmpty && originalVparamss.isEmpty)
+      ctx.error(CaseClassMissingParamList(cdef), cdef.sourcePos.withSpan(cdef.nameSpan))
     val constrVparamss =
-      if (originalVparamss.isEmpty) { // ensure parameter list is non-empty
-        if (isCaseClass && originalTparams.isEmpty)
-          ctx.error(CaseClassMissingParamList(cdef), namePos)
+      if (!newScheme && originalVparamss.isEmpty) { // ensure parameter list is non-empty
         ListOfNil
-      } else if (isCaseClass && originalVparamss.head.exists(_.mods.is(Implicit))) {
-          ctx.error("Case classes should have a non-implicit parameter list", namePos)
+      } else if (!newScheme && isCaseClass && originalVparamss.head.exists(_.mods.is(Implicit))) {
+        ctx.error("Case classes should have a non-implicit parameter list", namePos)
         ListOfNil
       }
       else originalVparamss.nestedMap(toDefParam)
@@ -398,7 +400,7 @@ object desugar {
       if (isEnum) {
         val (enumCases, enumStats) = stats.partition(DesugarEnums.isEnumCase)
         if (enumCases.isEmpty)
-          ctx.error("Enumerations must constain at least one case", namePos)
+          ctx.error("Enumerations must contain at least one case", namePos)
         val enumCompanionRef = new TermRefTree()
         val enumImport = Import(importImplied = false, enumCompanionRef, enumCases.flatMap(caseIds))
         (enumImport :: enumStats, enumCases, enumCompanionRef)
@@ -410,7 +412,7 @@ object desugar {
 
     val derivedTparams = constrTparams.map(derivedTypeParam(_))
     val derivedVparamss = constrVparamss.nestedMap(derivedTermParam(_))
-    val arity = constrVparamss.head.length
+    val arity = constrVparamss.headOrNil.length
 
     val classTycon: Tree = new TypeRefTree // watching is set at end of method
 
@@ -464,7 +466,7 @@ object desugar {
     // new C[Ts](paramss)
     lazy val creatorExpr = {
       val vparamss = constrVparamss match {
-        case (vparam :: _) :: _ if vparam.mods.is(Implicit) => // add a leading () to match class parameters
+        case (vparam :: _) :: _ if vparam.mods.is(Implicit) && !newScheme => // add a leading () to match class parameters
           Nil :: constrVparamss
         case _ =>
           constrVparamss
@@ -489,7 +491,7 @@ object desugar {
       def syntheticProperty(name: TermName, tpt: Tree, rhs: Tree) =
         DefDef(name, Nil, Nil, tpt, rhs).withMods(synthetic)
       def productElemMeths = {
-        val caseParams = derivedVparamss.head.toArray
+        val caseParams = derivedVparamss.headOrNil.toArray
         for (i <- List.range(0, arity) if nme.selectorName(i) `ne` caseParams(i).name)
         yield syntheticProperty(nme.selectorName(i), caseParams(i).tpt,
           Select(This(EmptyTypeIdent), caseParams(i).name))
@@ -501,13 +503,18 @@ object desugar {
         })
         if (mods.is(Abstract) || hasRepeatedParam) Nil  // cannot have default arguments for repeated parameters, hence copy method is not issued
         else {
-          def copyDefault(vparam: ValDef) =
-            makeAnnotated("scala.annotation.unchecked.uncheckedVariance", refOfDef(vparam))
-          val copyFirstParams = derivedVparamss.head.map(vparam =>
-            cpy.ValDef(vparam)(rhs = copyDefault(vparam)))
-          val copyRestParamss = derivedVparamss.tail.nestedMap(vparam =>
-            cpy.ValDef(vparam)(rhs = EmptyTree))
-          DefDef(nme.copy, derivedTparams, copyFirstParams :: copyRestParamss, TypeTree(), creatorExpr)
+          val copyParamss = derivedVparamss match {
+            case vparams :: vparamss =>
+              def copyDefault(vparam: ValDef) =
+                makeAnnotated("scala.annotation.unchecked.uncheckedVariance", refOfDef(vparam))
+              val copyFirstParams = vparams.map(vparam =>
+                cpy.ValDef(vparam)(rhs = copyDefault(vparam)))
+              val copyRestParamss = vparamss.nestedMap(vparam =>
+                cpy.ValDef(vparam)(rhs = EmptyTree))
+              copyFirstParams :: copyRestParamss
+            case Nil => Nil
+          }
+          DefDef(nme.copy, derivedTparams, copyParamss, TypeTree(), creatorExpr)
             .withMods(Modifiers(Synthetic | constr1.mods.flags & copiedAccessFlags, constr1.mods.privateWithin)) :: Nil
         }
       }
@@ -522,7 +529,8 @@ object desugar {
         val throwOutOfBound = Throw(New(javaDotLangDot(tpnme.IOOBException), List(List(indexAsString))))
         val defaultCase = CaseDef(Ident(nme.WILDCARD), EmptyTree, throwOutOfBound)
 
-        val patternMatchCases = derivedVparamss.head.zipWithIndex.map { case (param, idx) =>
+        val patternMatchCases = derivedVparamss.headOrNil.zipWithIndex.map {
+          case (param, idx) =>
             CaseDef(Literal(Constant(idx)), EmptyTree, Literal(Constant(param.name.decode.toString)))
         } :+ defaultCase
         val body = Match(paramRef, patternMatchCases)
@@ -707,6 +715,7 @@ object desugar {
         rhs = cpy.Template(impl)(constr, parents1, clsDerived, self1,
           tparamAccessors ::: vparamAccessors ::: normalizedBody ::: caseClassMeths)): TypeDef
     }
+    //println(i"creating $cdef ==> $cdef1, constr = $constr, from ${impl.constr}, $constr1")
 
     // install the watch on classTycon
     classTycon match {

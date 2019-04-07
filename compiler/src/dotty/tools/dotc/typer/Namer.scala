@@ -124,7 +124,7 @@ trait NamerContextOps { this: Context =>
 
   /** if isConstructor, make sure it has one non-implicit parameter list */
   def normalizeIfConstructor(termParamss: List[List[Symbol]], isConstructor: Boolean): List[List[Symbol]] =
-    if (isConstructor &&
+    if (!desugar.newScheme && isConstructor &&
       (termParamss.isEmpty || termParamss.head.nonEmpty && (termParamss.head.head is Implicit)))
       Nil :: termParamss
     else
@@ -1399,6 +1399,7 @@ class Namer { typer: Typer =>
   def defDefSig(ddef: DefDef, sym: Symbol)(implicit ctx: Context): Type = {
     // Beware: ddef.name need not match sym.name if sym was freshened!
     val DefDef(_, tparams, vparamss, _, _) = ddef
+    println(i"SIG: $sym / $ddef")
     val isConstructor = sym.name == nme.CONSTRUCTOR
 
     // The following 3 lines replace what was previously just completeParams(tparams).
