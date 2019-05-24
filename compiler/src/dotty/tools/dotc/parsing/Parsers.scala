@@ -1603,7 +1603,7 @@ object Parsers {
         case USCORE =>
           val start = in.skipToken()
           val pname = WildcardParamName.fresh()
-          val param = ValDef(pname, TypeTree(), EmptyTree).withFlags(SyntheticTermParam)
+          val param = ValDef(pname, TypeTree(), EmptyTree).withFlags(SyntheticTermParam.toFlags)
             .withSpan(Span(start))
           placeholderParams = param :: placeholderParams
           atSpan(start) { Ident(pname) }
@@ -2033,7 +2033,7 @@ object Parsers {
     private def normalize(mods: Modifiers): Modifiers =
       if ((mods is Private) && mods.hasPrivateWithin)
         normalize(mods &~ Private)
-      else if (mods is AbstractAndOverride)
+      else if (mods.isAll(AbstractAndOverride))
         normalize(addFlag(mods &~ (Abstract | Override), AbsOverride))
       else
         mods
@@ -2172,7 +2172,7 @@ object Parsers {
         val start = in.offset
         val mods =
           annotsAsMods() | {
-            if (ownerKind == ParamOwner.Class) Param | PrivateLocal
+            if (ownerKind == ParamOwner.Class) Param | PrivateLocal.toFlags
             else Param
           } | {
             if (ownerKind == ParamOwner.Def) EmptyFlags
@@ -2237,7 +2237,7 @@ object Parsers {
               if (!(mods.flags &~ (ParamAccessor | Inline | impliedMods.flags)).isEmpty)
                 syntaxError("`val' or `var' expected")
               if (firstClause && ofCaseClass) mods
-              else mods | PrivateLocal
+              else mods | PrivateLocal.toFlags
             }
         }
         else {
@@ -2816,9 +2816,9 @@ object Parsers {
         }
         else {
           newLineOptWhenFollowedBy(LBRACE)
-          val tparams1 = tparams.map(tparam => tparam.withMods(tparam.mods | PrivateLocal))
+          val tparams1 = tparams.map(tparam => tparam.withMods(tparam.mods | PrivateLocal.toFlags))
           val vparamss1 = vparamss.map(_.map(vparam =>
-            vparam.withMods(vparam.mods &~ Param | ParamAccessor | PrivateLocal)))
+            vparam.withMods(vparam.mods &~ Param | ParamAccessor | PrivateLocal.toFlags)))
           val templ = templateBodyOpt(makeConstructor(tparams1, vparamss1), parents, Nil)
           if (tparams.isEmpty && vparamss.isEmpty) ModuleDef(name, templ)
           else TypeDef(name.toTypeName, templ)
