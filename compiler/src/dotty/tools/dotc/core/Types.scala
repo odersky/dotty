@@ -552,7 +552,7 @@ object Types {
         case tp: TermRef =>
           go (tp.underlying match {
             case mt: MethodType
-            if mt.paramInfos.isEmpty && (tp.symbol is StableRealizable) => mt.resultType
+            if mt.paramInfos.isEmpty && tp.symbol.is(StableRealizable) => mt.resultType
             case tp1 => tp1
           })
         case tp: TypeRef =>
@@ -759,7 +759,7 @@ object Types {
     /** The set of abstract term members of this type. */
     final def abstractTermMembers(implicit ctx: Context): Seq[SingleDenotation] = track("abstractTermMembers") {
       memberDenots(abstractTermNameFilter,
-          (name, buf) => buf ++= nonPrivateMember(name).altsWith(_ is Deferred))
+          (name, buf) => buf ++= nonPrivateMember(name).altsWith(_.is(Deferred)))
     }
 
     /** The set of abstract type members of this type. */
@@ -792,7 +792,7 @@ object Types {
      */
     final def implicitMembers(kind: FlagSet)(implicit ctx: Context): List[TermRef] = track("implicitMembers") {
       memberDenots(implicitFilter,
-          (name, buf) => buf ++= member(name).altsWith(_.is(ImplicitOrImpliedOrGivenTerm & kind)))
+          (name, buf) => buf ++= member(name).altsWith(_.isOneOf(ImplicitOrImpliedOrGivenTerm & kind)))
         .toList.map(d => TermRef(this, d.symbol.asTerm))
     }
 
@@ -2120,7 +2120,7 @@ object Types {
           }
           if (base.isAnd == variance >= 0) tp1 & tp2 else tp1 | tp2
         case _ =>
-          if (pre.termSymbol is Package) argForParam(pre.select(nme.PACKAGE))
+          if (pre.termSymbol.is(Package)) argForParam(pre.select(nme.PACKAGE))
           else if (pre.isBottomType) pre
           else NoType
       }
@@ -3967,7 +3967,7 @@ object Types {
         selfTypeCache = {
           val givenSelf = cls.givenSelfType
           if (!givenSelf.isValueType) appliedRef
-          else if (cls is Module) givenSelf
+          else if (cls.is(Module)) givenSelf
           else if (ctx.erasedTypes) appliedRef
           else AndType(givenSelf, appliedRef)
         }
@@ -4320,7 +4320,7 @@ object Types {
           case et: ExprType => true
           case _ => false
         }
-        if ((tp.cls is Trait) || zeroParams(tp.cls.primaryConstructor.info)) tp // !!! needs to be adapted once traits have parameters
+        if ((tp.cls.is(Trait)) || zeroParams(tp.cls.primaryConstructor.info)) tp // !!! needs to be adapted once traits have parameters
         else NoType
       case tp: AppliedType =>
         zeroParamClass(tp.superType)
@@ -5116,7 +5116,7 @@ object Types {
     def apply(pre: Type, name: Name)(implicit ctx: Context): Boolean =
       name.isTypeName && {
         val mbr = pre.nonPrivateMember(name)
-        (mbr.symbol is Deferred) && mbr.info.isInstanceOf[RealTypeBounds]
+        (mbr.symbol.is(Deferred)) && mbr.info.isInstanceOf[RealTypeBounds]
       }
   }
 
@@ -5132,7 +5132,7 @@ object Types {
   /** A filter for names of deferred term definitions of a given type */
   object abstractTermNameFilter extends NameFilter {
     def apply(pre: Type, name: Name)(implicit ctx: Context): Boolean =
-      name.isTermName && pre.nonPrivateMember(name).hasAltWith(_.symbol is Deferred)
+      name.isTermName && pre.nonPrivateMember(name).hasAltWith(_.symbol.is(Deferred))
   }
 
   /** A filter for names of type aliases of a given type */
