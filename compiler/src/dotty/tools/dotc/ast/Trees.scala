@@ -351,7 +351,20 @@ object Trees {
       if (span.exists) {
         val point = span.point
         if (rawMods.is(Synthetic) || name.toTermName == nme.ERROR) Span(point)
-        else Span(point, point + name.stripModuleClassSuffix.lastPart.length, point)
+        else {
+          // Note: This might be inaccurate in the case where the span does not have a separate point
+          // since the name position is too far away from the start position. In this case we scan
+          // from the start position to find the name. But scanning might hit accidentally on the same
+          // name (e.g. in a comment).
+          // To make this behavior more robust we'd have to change the trees for definitions to contain
+          // a fully positioned Ident in place of a name. Or else change the positioning scheme for enums
+          // so that a case valdef does not include its synthesized RHS (which would mean we have to weaken
+          // our invariants on position nesting).
+          val realName = name.stripModuleClassSuffix.lastPart.toString
+          def nameStart = source.content().indexOfSlice(realName, point)
+          if (nameStart >= 0) Span(point, point + realName.length, point)
+          else Span(point)
+        }
       }
       else span
   }
